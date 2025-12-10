@@ -19,11 +19,12 @@ let frameH5 = 0;
 let frameDelay = 6; // 每幀持續的 draw 次數，數字越小動畫越快
 
 // 角色位置與狀態
-let posX, posY;
+let posX1, posX2, posY; // 兩個獨立 x 位置：posX1 用於主要顯示，posX2 用於同時顯示另一張（1all/2all）
 let speed = 4;
 let movingLeft = false;
 let movingRight = false;
 let facing = 1; // 1 = 右, -1 = 左
+let facing2 = 1; // 2all 的朝向（獨立於主角）
 let lastFacing = 1; // 紀錄最近一次移動方向，用於靜止時的朝向
 let displayScale = 3; // 放大倍數，可調
 // 跳躍相關
@@ -128,7 +129,9 @@ function setup() {
   createCanvas(windowWidth, windowHeight);
   pixelDensity(1);
   // 初始位置在畫面中間
-  posX = width / 2;
+  // 將兩張圖略微分開顯示，並同時可移動
+  posX1 = width / 2 - 60;
+  posX2 = width / 2 + 60;
   baseY = height / 2;
   posY = baseY;
 
@@ -171,27 +174,27 @@ function draw() {
   yOffset = 0;
 
   if (movingLeft) {
-    // 向左移動，使用 2all.png 並面向左
+    // 按左鍵：用 2all 取代主角，向左前進，不翻轉（保持原向）
     if (sprite2Img) {
       currentImg = sprite2Img;
       currentFrames = TOTAL_FRAMES_2;
       cw = frameW2;
       ch = frameH2;
     }
-    posX -= speed;
-    facing = -1;
-    lastFacing = -1;
-  } else if (movingRight) {
-    // 向右移動，使用 2all.png 並面向右
-    if (sprite2Img) {
-      currentImg = sprite2Img;
-      currentFrames = TOTAL_FRAMES_2;
-      cw = frameW2;
-      ch = frameH2;
-    }
-    posX += speed;
-    facing = 1;
+    posX1 -= speed;     // 以主位置 posX1 移動
+    facing = 1;         // 不翻轉（scale(1,1)）讓圖面向左
     lastFacing = 1;
+  } else if (movingRight) {
+    // 按右鍵：用 2all 取代主角，向右前進，需水平翻轉以面向右
+    if (sprite2Img) {
+      currentImg = sprite2Img;
+      currentFrames = TOTAL_FRAMES_2;
+      cw = frameW2;
+      ch = frameH2;
+    }
+    posX1 += speed;     // 以主位置 posX1 移動
+    facing = -1;        // 翻轉（scale(-1,1)）讓圖面向右
+    lastFacing = -1;
   } else {
     // 靜止時使用 1all.png（idle）
     currentImg = spriteImg;
@@ -239,45 +242,26 @@ function draw() {
     }
   }
 
-  // 處理空白鍵動作（4all），若正在播放 priority: 跳躍/走動 仍顯示此動作
-  if (isPlaying4) {
-    // 使用 4all
+  // 處理空白鍵動作（4all），改為「按住空白鍵時持續顯示並播放 4all；放開時恢復 1all」
+  // 判斷是否按住空白鍵：按住時顯示並播放 4all，放開時恢復為其他狀態
+  const spaceDown = keyIsDown(32); // 32 = Space
+  if (spaceDown) {
+    isPlaying4 = true;
+    // 切換為 4all 的圖與幀設定
     if (sprite4Img) {
       currentImg = sprite4Img;
       currentFrames = TOTAL_FRAMES_4;
       cw = frameW4;
       ch = frameH4;
     }
-
-    // 計算播放幀
-    const playIdx = floor(play4Tick / play4Delay);
-    if (playIdx >= currentFrames) {
-      // 播放結束：產生新角色（使用 5all.png）
-      isPlaying4 = false;
-      play4Tick = 0;
-
-      // spawn new char only if sprite5 loaded (still spawn object anyway)
-      const newChar = {
-        x: posX,
-        y: baseY,
-        facing: lastFacing,
-        speed: 3,
-        frameTick: 0,
-        frameDelay: 6,
-        frames: TOTAL_FRAMES_5,
-        w: frameW5,
-        h: frameH5
-      };
-      spawnedChars.push(newChar);
-    } else {
-      // 還在播放中的幀，讓其進度 ++
-      play4Tick++;
-      // 使用播放的幀索引作為 idx（稍後用於裁切）
-      // 我們將把 idx 設為 playIdx，並在下方的裁切與繪製邏輯中使用它
-      // 設定一個臨時變數供下方使用
-      var _play_idx = playIdx;
-      // 直接在下方使用 isPlaying4 狀態時選擇 idx
-    }
+    // 4all 按住時持續向前移動（使用原先的移動方向邏輯）
+    posX1 += (-facing) * speed;
+    // 推進播放計數以驅動動畫（按住時循環）
+    play4Tick++;
+  } else {
+    // 放開空白鍵：停止播放 4all，重置計數，畫面會使用其它 currentImg（通常為 1all）
+    isPlaying4 = false;
+    play4Tick = 0;
   }
 
   // 若當前圖片還沒載入，顯示提示文字
@@ -307,8 +291,9 @@ function draw() {
   // 計算目前幀索引
   let idx;
   if (isPlaying4) {
-    // 當正在播放 4all 時，以 play4Tick 決定幀
-    idx = constrain(floor(play4Tick / play4Delay), 0, currentFrames - 1);
+    // 當正在播放 4all（按住空白鍵）時，讓 4all 連續循環播放
+    // 使用 modulo 使動畫循環，不會停在最後一格
+    idx = floor(play4Tick / play4Delay) % currentFrames;
   } else if (isJumping) {
     idx = constrain(floor(jumpTick / jumpDelay), 0, currentFrames - 1);
   } else {
@@ -322,50 +307,40 @@ function draw() {
   const displayH = ch * displayScale;
 
   // 邊界限制
-  const halfW = displayW / 2;
-  posX = constrain(posX, halfW, width - halfW);
+  const halfWMain = displayW / 2;
+  posX1 = constrain(posX1, halfWMain, width - halfWMain);
+  // 另一張圖的顯示寬度（若未載入則使用 frameW2 欄位）
+  const displayW2 = (frameW2 || (sprite2Img ? floor(sprite2Img.width / TOTAL_FRAMES_2) : 0)) * displayScale;
+  const halfW2 = displayW2 / 2;
+  posX2 = constrain(posX2, halfW2, width - halfW2);
 
   // 實際繪製位置包含跳躍偏移
   const drawY = baseY + yOffset;
 
   // 繪製（支援翻轉）
   push();
-  translate(posX, drawY);
+  // 主要角色繪製（使用 posX1）
+  translate(posX1, drawY);
   scale(facing, 1); // 若 facing 為 -1，會水平翻轉
   // 使用 image 的裁切版本，因為我們已經 translate 到中心，使用 (0,0)
   // 注意：當 scale(-1,1) 時，影像仍以正寬度繪製，所以不須調整 sx
   image(currentImg, 0, 0, displayW, displayH, sx, sy, cw, ch);
   pop();
 
-  // 更新與繪製被產生的新角色（使用 5all.png）
-  for (let i = spawnedChars.length - 1; i >= 0; i--) {
-    const c = spawnedChars[i];
-    // 如果 sprite5Img 尚未載入，跳過繪製，但仍更新位置
-    c.x += c.speed * c.facing;
-    c.frameTick++;
-    const cidx = floor(c.frameTick / c.frameDelay) % c.frames;
-    if (sprite5Img && sprite5Img.width) {
-      push();
-      translate(c.x, c.y);
-      scale(c.facing, 1);
-      const cw5 = c.w || frameW5;
-      const ch5 = c.h || frameH5;
-      const dispW5 = cw5 * displayScale;
-      const dispH5 = ch5 * displayScale;
-      image(sprite5Img, 0, 0, dispW5, dispH5, cidx * cw5, 0, cw5, ch5);
-      pop();
-    }
-    // 可選：若跑出畫面可移除陣列（否則無限累積），我們在此移除超出邊界的角色
-    if (c.x < -100 || c.x > width + 100) {
-      spawnedChars.splice(i, 1);
-    }
-  }
-}
+  // 同時繪製另一張（1all 或 2all），位於 posX2，使用自己的幀索引
+  // 已改為：當按鍵時 currentImg = sprite2 並在主位置 posX1 繪製，
+  // 所以移除額外以 posX2 再繪製的區塊（避免重疊）
+
+  // 已移除 5all 的產生與繪製，空白鍵只會播放並移動 4all（不會生成任何新角色）
+} // end draw()
 
 function windowResized() {
   resizeCanvas(windowWidth, windowHeight);
   // 更新位置（保持於中間附近）
   posY = height / 2;
+  // 重新置中兩個角色
+  posX1 = width / 2 - 60;
+  posX2 = width / 2 + 60;
 }
 
 // 若需額外的鍵盤互動處理（例如按鍵放開時清除狀態），可視情況加上
@@ -376,10 +351,7 @@ function keyPressed() {
   } else if (keyCode === RIGHT_ARROW) {
     movingRight = true;
   } else if (keyCode === 32 || key === ' ') { // 空白鍵觸發 4all 播放
-    if (!isPlaying4) {
-      isPlaying4 = true;
-      play4Tick = 0;
-    }
+    // 不再在這裡直接改變 isPlaying4，draw() 會以 keyIsDown(32) 決定是否播放
   }
 }
 
@@ -388,5 +360,8 @@ function keyReleased() {
     movingLeft = false;
   } else if (keyCode === RIGHT_ARROW) {
     movingRight = false;
+  } else if (keyCode === 32) { // 放開空白鍵立即停止 4all（保險）
+    isPlaying4 = false;
+    play4Tick = 0;
   }
 }
