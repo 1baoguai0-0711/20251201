@@ -1,3 +1,4 @@
+
 // 精靈動畫設定
 let spriteImg;
 let sprite2Img;
